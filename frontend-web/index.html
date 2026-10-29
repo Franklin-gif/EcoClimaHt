@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcoClima - Panel Multi-Espacio</title>
+    <link rel="stylesheet" href="CSS/style.css">
+</head>
+<body>
+
+    <div class="header">
+        <h1>Panel Multi-Espacio</h1>
+        <p>EcoClima - Gestión Dinámica</p>
+    </div>
+
+    <div class="container" id="rooms-container">
+        <p style="text-align: center; color: gray;">Conectando con el servidor...</p>
+    </div>
+
+    <!-- Botón Flotante -->
+    <button class="fab" onclick="abrirModal()">+</button>
+
+    <!-- Modal para Agregar Salón -->
+    <div class="modal-overlay" id="modalAdd">
+        <div class="modal-content">
+            <h2>Agregar Nuevo Salón</h2>
+            <input type="text" id="roomNameInput" placeholder="Ej. Salón 900">
+            <div class="modal-buttons">
+                <button class="btn-cancelar" onclick="cerrarModal()">Cancelar</button>
+                <button class="btn-crear" onclick="guardarSalon()">Crear</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // CAMBIA LA IP AQUÍ SI ES NECESARIO
+        const IP_SERVIDOR = '192.168.100.193'; 
+        const API_URL = `http://${IP_SERVIDOR}:8000/api/sensors`;
+        const API_EMERGENCY = `http://${IP_SERVIDOR}:8000/api/emergency`;
+        
+        const container = document.getElementById('rooms-container');
+
+        // Evaluar estado para colores (Óptimo, Aceptable, Crítico)
+        function evaluarEstado(temp, hum, co2) {
+            if (temp > 30 || hum > 70 || co2 > 1000) return { texto: 'Crítico', clase: 'status-critico' };
+            if (temp > 26 || hum > 60 || co2 > 800) return { texto: 'Aceptable', clase: 'status-aceptable' };
+            return { texto: 'Óptimo', clase: 'status-optimo' };
+        }
+
+        // Obtener y dibujar los salones
+        async function fetchSensores() {
+            try {
+                const response = await fetch(API_URL);
+                if (!response.ok) throw new Error('Error de conexión');
+                const data = await response.json();
+
+                container.innerHTML = '';
+
+                if (Object.keys(data).length === 0) {
+                    container.innerHTML = '<p style="text-align: center; margin-top: 50px;">No hay salones registrados.</p>';
+                    return;
+                }
+
+                for (const [roomName, metrics] of Object.entries(data)) {
+                    const estado = evaluarEstado(metrics.temperature, metrics.humidity, metrics.co2);
+                    
+                    const card = document.createElement('div');
+                    card.className = `card ${estado.clase}`;
+                    card.innerHTML = `
+                        <div class="card-header">
+                            <span>${roomName}</span>
+                        </div>
+                        <div class="status">Estado: ${estado.texto}</div>
+                        <div class="metrics">
+                            <span>Temp: ${metrics.temperature}°C</span>
+                            <span>Hum: ${metrics.humidity}%</span>
+                            <span>CO2: ${metrics.co2} ppm</span>
+                        </div>
+                        <div style="text-align: right; font-size: 12px; color: gray; margin-top: 5px;">
+                            Última lectura: ${metrics.last_updated || 'Desconocida'}
+                        </div>
+                        <button class="btn-emergency" onclick="toggleEmergencia('${roomName}', ${!metrics.emergency})">
+                            ${metrics.emergency ? 'APAGAR EMERGENCIA' : 'ACTIVAR EMERGENCIA'}
+                        </button>
+                        <button class="btn-entrar" onclick="entrarSalon('${roomName}')">
+                            Entrar al Salón ➔
+                        </button>
+                    `;
+                    container.appendChild(card);
+                }
+            } catch (error) {
+                container.innerHTML = '<p style="text-align: center; color: red;">Error conectando al servidor FastAPI.</p>';
+            }
+        }
+
+        // Funciones del Modal
+        function abrirModal() { document.getElementById('modalAdd').style.display = 'flex'; }
+        
+        function cerrarModal() { 
+            document.getElementById('modalAdd').style.display = 'none'; 
+            document.getElementById('roomNameInput').value = '';
+        }
+
+        // Crear salón enviando datos iniciales "falsos" al backend
+        async function guardarSalon() {
+            const nombre = document.getElementById('roomNameInput').value.trim();
+            if (!nombre) return alert('Por favor, ingresa el nombre del salón.');
+
+            const datosIniciales = {
+                room: nombre,
+                temperature: 24.5, // Valores por defecto simulados
+                humidity: 50.0,
+                co2: 450
+            };
+
+            try {
+                await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(datosIniciales)
+                });
+                cerrarModal();
+                fetchSensores();
+            } catch (error) {
+                alert('Error al crear el salón en el servidor.');
+            }
+        }
+
+        // Función para enviar alerta de emergencia
+        async function toggleEmergencia(roomName, newState) {
+            try {
+                await fetch(API_EMERGENCY, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ room: roomName, active: newState })
+                });
+                fetchSensores();
+            } catch (error) {
+                alert("Error al enviar comando de emergencia");
+            }
+        }
+
+        // Simulación de "Entrar" a la vista detallada
+        function entrarSalon(roomName) {
+            alert(`Entrando a la configuración avanzada de: ${roomName}\n(Aquí integraremos las gráficas históricas más adelante).`);
+        }
+
+        // Iniciar ciclo de actualización
+        fetchSensores();
+        setInterval(fetchSensores, 3000);
+    </script>
+</body>
+</html>
