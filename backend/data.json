@@ -5,5 +5,12 @@
         "co2": 450,
         "last_updated": "19:18:36",
         "emergency": false
+    },
+    "sALON23": {
+        "temperature": 24.5,
+        "humidity": 50.0,
+        "co2": 450,
+        "last_updated": "19:39:36",
+        "emergency": false
     }
 }

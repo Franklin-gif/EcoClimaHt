@@ -5,9 +5,9 @@ import json
 import os
 from datetime import datetime
 
-app = FastAPI(title="EcoClima API")
+app = FastAPI(title="EcoClima API Enterprise")
 
-# Middleware CORS: Vital para que tu index.html local pueda hacer 'fetch' sin errores
+# Configuración CORS para permitir la conexión desde el frontend web
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -39,7 +39,6 @@ def read_data():
 @app.post("/api/sensors")
 async def receive_sensor_data(payload: SensorData):
     data = read_data()
-    # Conservamos el estado de la emergencia actual para no sobrescribirlo al actualizar sensores
     emergency_status = data.get(payload.room, {}).get("emergency", False)
     
     data[payload.room] = {

@@ -3,149 +3,372 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EcoClima - Panel Multi-Espacio</title>
+    <title>EcoClima IOT Enterprise</title>
     <link rel="stylesheet" href="CSS/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
-    <div class="header">
-        <h1>Panel Multi-Espacio</h1>
-        <p>EcoClima - Gestión Dinámica</p>
+    <!-- BARRA LATERAL -->
+    <div class="sidebar">
+        <div class="brand">
+            <div>
+                <h2>EcoClima</h2>
+                <span>IOT ENTERPRISE</span>
+            </div>
+        </div>
+        <ul class="nav-menu">
+            <li id="menu-dashboard" class="active" onclick="cambiarVista('view-dashboard', this.id)">❖ Dashboard General</li>
+            <li id="menu-detalle" onclick="mostrarAlerta('Selecciona un salón desde el Dashboard haciendo clic en Vista Analítica.')">◫ Vista de Detalle</li>
+            
+            <li id="menu-alertas" onclick="cambiarVista('view-alerts', this.id)">
+                ⚠ Centro de Alertas 
+                <span id="alert-dot" class="badge-dot"></span>
+            </li>
+
+            <li id="menu-config" onclick="cambiarVista('view-settings', this.id)">⚙ Configuración de Umbrales</li>
+        </ul>
     </div>
 
-    <div class="container" id="rooms-container">
-        <p style="text-align: center; color: gray;">Conectando con el servidor...</p>
+    <!-- CONTENIDO PRINCIPAL -->
+    <div class="main-content">
+        <div class="topbar">
+            <div class="topbar-info">
+                <span>● En línea - IoT Activo</span>
+                <span>| Campus Central</span>
+            </div>
+            <div>
+                <button class="btn-emergency" style="background: var(--status-critico); color: white; border:none;">⚠ Paro de Emergencia Global</button>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- VISTA 1: DASHBOARD GENERAL                 -->
+        <!-- ========================================== -->
+        <div id="view-dashboard" class="vista-app" style="display: block;">
+            <div class="container" id="rooms-container"></div>
+            <button class="fab" onclick="abrirModal()">+</button>
+        </div>
+
+
+        <!-- ========================================== -->
+        <!-- VISTA 2: DETALLE ANALÍTICO                 -->
+        <!-- ========================================== -->
+        <div id="view-detail" class="vista-app" style="display: none; padding: 30px;">
+            <button class="btn-back" onclick="cambiarVista('view-dashboard', 'menu-dashboard')">← Volver al Panel Multi-Espacio</button>
+            
+            <div class="detail-header">
+                <div>
+                    <h2 id="detail-title">Cargando...</h2>
+                    <p style="color: var(--text-secondary); margin-top: 5px;">Telemetría Ambiental Continua</p>
+                </div>
+                <span id="detail-status">● ESTADO: ÓPTIMO</span>
+            </div>
+
+            <div class="detail-gauges">
+                <div class="gauge-card">
+                    <div class="gauge-label">Temperatura Interior</div>
+                    <div class="gauge-value" id="det-temp" style="color: #00e5ff;">--.-°C</div>
+                    <div class="gauge-label">Confort</div>
+                </div>
+                <div class="gauge-card">
+                    <div class="gauge-label">Dióxido de Carbono</div>
+                    <div class="gauge-value" id="det-co2" style="color: #f39c12;">---</div>
+                    <div class="gauge-label">PPM (Rango)</div>
+                </div>
+                <div class="gauge-card">
+                    <div class="gauge-label">Humedad Relativa</div>
+                    <div class="gauge-value" id="det-hum" style="color: #2ecc71;">--%</div>
+                    <div class="gauge-label">Higiometría Ideal</div>
+                </div>
+            </div>
+
+            <div class="chart-container"><canvas id="telemetryChart"></canvas></div>
+
+            <h3 style="color: var(--text-primary); margin-bottom: 15px;">Actuadores y Control IoT en Vivo</h3>
+            <div class="controls-grid">
+                <div class="control-card">
+                    <div class="control-info">
+                        <h4>Ventilación (Servomotor)</h4>
+                        <p>Apertura de rejillas HVAC</p>
+                    </div>
+                    <label class="switch"><input type="checkbox" checked><span class="slider"></span></label>
+                </div>
+                <div class="control-card" style="border-left: 4px solid var(--status-critico);">
+                    <div class="control-info">
+                        <h4>Alarma Visual (LEDs)</h4>
+                        <p>Estado de emergencia local</p>
+                    </div>
+                    <label class="switch"><input type="checkbox" id="switch-alarma" onchange="toggleEmergenciaDetalle(this.checked)"><span class="slider"></span></label>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- ========================================== -->
+        <!-- VISTA 3: CENTRO DE ALERTAS                 -->
+        <!-- ========================================== -->
+        <div id="view-alerts" class="vista-app" style="display: none; padding: 30px;">
+            <h2 style="color: var(--text-primary);">Centro de Alertas Activas</h2>
+            <p style="color: var(--text-secondary);">Incidentes y desviaciones de calidad del aire en tiempo real.</p>
+            
+            <table class="alerts-table">
+                <thead>
+                    <tr>
+                        <th>SEVERIDAD</th>
+                        <th>UBICACIÓN</th>
+                        <th>MÉTRICA AFECTADA</th>
+                        <th>HORA DE LECTURA</th>
+                    </tr>
+                </thead>
+                <tbody id="alerts-body"></tbody>
+            </table>
+        </div>
+
+
+        <!-- ========================================== -->
+        <!-- VISTA 4: CONFIGURACIÓN DE UMBRALES         -->
+        <!-- ========================================== -->
+        <div id="view-settings" class="vista-app" style="display: none; padding: 30px;">
+            <h2 style="color: var(--text-primary);">Configuración de Umbrales (Set-Points)</h2>
+            <p style="color: var(--text-secondary);">Define los valores máximos permitidos antes de disparar las alertas.</p>
+            
+            <div class="settings-grid">
+                <div class="settings-card">
+                    <h3 style="color: #e74c3c; margin-top:0;">Nivel Crítico (Alarma Roja)</h3>
+                    <div class="form-group">
+                        <label>Temperatura Máxima (°C)</label>
+                        <input type="number" id="cfg-crit-temp" value="30">
+                    </div>
+                    <div class="form-group">
+                        <label>Humedad Máxima (%)</label>
+                        <input type="number" id="cfg-crit-hum" value="70">
+                    </div>
+                    <div class="form-group">
+                        <label>CO2 Máximo (PPM)</label>
+                        <input type="number" id="cfg-crit-co2" value="1000">
+                    </div>
+                </div>
+
+                <div class="settings-card">
+                    <h3 style="color: #f39c12; margin-top:0;">Nivel de Advertencia (Amarillo)</h3>
+                    <div class="form-group">
+                        <label>Temperatura Límite (°C)</label>
+                        <input type="number" id="cfg-adv-temp" value="26">
+                    </div>
+                    <div class="form-group">
+                        <label>Humedad Límite (%)</label>
+                        <input type="number" id="cfg-adv-hum" value="60">
+                    </div>
+                    <div class="form-group">
+                        <label>CO2 Límite (PPM)</label>
+                        <input type="number" id="cfg-adv-co2" value="800">
+                    </div>
+                </div>
+            </div>
+            <button class="btn-save" onclick="guardarUmbrales()">Guardar Umbrales en el Sistema</button>
+        </div>
+
     </div>
 
-    <!-- Botón Flotante -->
-    <button class="fab" onclick="abrirModal()">+</button>
-
-    <!-- Modal para Agregar Salón -->
+    <!-- Modal Agregar Salón -->
     <div class="modal-overlay" id="modalAdd">
         <div class="modal-content">
             <h2>Agregar Nuevo Salón</h2>
-            <input type="text" id="roomNameInput" placeholder="Ej. Salón 900">
+            <input type="text" id="roomNameInput" placeholder="Ej. Laboratorio A">
             <div class="modal-buttons">
                 <button class="btn-cancelar" onclick="cerrarModal()">Cancelar</button>
-                <button class="btn-crear" onclick="guardarSalon()">Crear</button>
+                <button class="btn-crear" onclick="guardarSalon()">Crear Salón</button>
             </div>
         </div>
     </div>
 
+    <!-- NOTIFICACIÓN TOAST PERSONALIZADA (REEMPLAZO DE ALERT) -->
+    <div class="custom-toast-overlay" id="customToast">
+        <div class="custom-toast-box">
+            <h3>EcoClima Notificación</h3>
+            <p id="toastMessage">Mensaje del sistema...</p>
+            <button class="custom-toast-btn" onclick="cerrarAlerta()">Aceptar</button>
+        </div>
+    </div>
+
     <script>
-        // CAMBIA LA IP AQUÍ SI ES NECESARIO
         const IP_SERVIDOR = '192.168.100.193'; 
         const API_URL = `http://${IP_SERVIDOR}:8000/api/sensors`;
         const API_EMERGENCY = `http://${IP_SERVIDOR}:8000/api/emergency`;
         
-        const container = document.getElementById('rooms-container');
+        let currentRoomDetail = null;
+        let chartInstance = null;
+        let lastSensorData = {};
 
-        // Evaluar estado para colores (Óptimo, Aceptable, Crítico)
-        function evaluarEstado(temp, hum, co2) {
-            if (temp > 30 || hum > 70 || co2 > 1000) return { texto: 'Crítico', clase: 'status-critico' };
-            if (temp > 26 || hum > 60 || co2 > 800) return { texto: 'Aceptable', clase: 'status-aceptable' };
-            return { texto: 'Óptimo', clase: 'status-optimo' };
+        let umbrales = {
+            critTemp: 30, critHum: 70, critCo2: 1000,
+            advTemp: 26, advHum: 60, advCo2: 800
+        };
+
+        // --- SISTEMA DE NOTIFICACIÓN PERSONALIZADA ---
+        function mostrarAlerta(mensaje) {
+            document.getElementById('toastMessage').innerText = mensaje;
+            document.getElementById('customToast').style.display = 'flex';
         }
 
-        // Obtener y dibujar los salones
+        function cerrarAlerta() {
+            document.getElementById('customToast').style.display = 'none';
+        }
+
+        function cambiarVista(vistaId, menuItemId) {
+            document.querySelectorAll('.vista-app').forEach(v => v.style.display = 'none');
+            document.getElementById(vistaId).style.display = 'block';
+            
+            document.querySelectorAll('.nav-menu li').forEach(li => li.classList.remove('active'));
+            if(menuItemId) document.getElementById(menuItemId).classList.add('active');
+        }
+
+        function evaluarEstado(temp, hum, co2) {
+            if (temp >= umbrales.critTemp || hum >= umbrales.critHum || co2 >= umbrales.critCo2) 
+                return { texto: 'CRÍTICA', color: '#e74c3c', clase: 'status-critico' };
+            if (temp >= umbrales.advTemp || hum >= umbrales.advHum || co2 >= umbrales.advCo2) 
+                return { texto: 'ADVERTENCIA', color: '#f39c12', clase: 'status-aceptable' };
+            return { texto: 'ÓPTIMO', color: '#2ecc71', clase: 'status-optimo' };
+        }
+
+        function guardarUmbrales() {
+            umbrales.critTemp = parseFloat(document.getElementById('cfg-crit-temp').value);
+            umbrales.critHum = parseFloat(document.getElementById('cfg-crit-hum').value);
+            umbrales.critCo2 = parseFloat(document.getElementById('cfg-crit-co2').value);
+            umbrales.advTemp = parseFloat(document.getElementById('cfg-adv-temp').value);
+            umbrales.advHum = parseFloat(document.getElementById('cfg-adv-hum').value);
+            umbrales.advCo2 = parseFloat(document.getElementById('cfg-adv-co2').value);
+            
+            mostrarAlerta("Umbrales actualizados correctamente. El sistema reevaluará los salones.");
+            fetchSensores();
+        }
+
         async function fetchSensores() {
             try {
                 const response = await fetch(API_URL);
-                if (!response.ok) throw new Error('Error de conexión');
                 const data = await response.json();
+                lastSensorData = data;
 
-                container.innerHTML = '';
-
-                if (Object.keys(data).length === 0) {
-                    container.innerHTML = '<p style="text-align: center; margin-top: 50px;">No hay salones registrados.</p>';
-                    return;
+                renderDashboard(data);
+                renderAlertas(data);
+                
+                if (document.getElementById('view-detail').style.display === 'block' && currentRoomDetail) {
+                    actualizarDatosDetalle(data[currentRoomDetail]);
                 }
+            } catch (error) { console.error("Error backend:", error); }
+        }
 
-                for (const [roomName, metrics] of Object.entries(data)) {
-                    const estado = evaluarEstado(metrics.temperature, metrics.humidity, metrics.co2);
-                    
-                    const card = document.createElement('div');
-                    card.className = `card ${estado.clase}`;
-                    card.innerHTML = `
-                        <div class="card-header">
-                            <span>${roomName}</span>
-                        </div>
-                        <div class="status">Estado: ${estado.texto}</div>
-                        <div class="metrics">
-                            <span>Temp: ${metrics.temperature}°C</span>
-                            <span>Hum: ${metrics.humidity}%</span>
-                            <span>CO2: ${metrics.co2} ppm</span>
-                        </div>
-                        <div style="text-align: right; font-size: 12px; color: gray; margin-top: 5px;">
-                            Última lectura: ${metrics.last_updated || 'Desconocida'}
-                        </div>
-                        <button class="btn-emergency" onclick="toggleEmergencia('${roomName}', ${!metrics.emergency})">
-                            ${metrics.emergency ? 'APAGAR EMERGENCIA' : 'ACTIVAR EMERGENCIA'}
-                        </button>
-                        <button class="btn-entrar" onclick="entrarSalon('${roomName}')">
-                            Entrar al Salón ➔
-                        </button>
-                    `;
-                    container.appendChild(card);
-                }
-            } catch (error) {
-                container.innerHTML = '<p style="text-align: center; color: red;">Error conectando al servidor FastAPI.</p>';
+        function renderDashboard(data) {
+            const container = document.getElementById('rooms-container');
+            container.innerHTML = '';
+            
+            for (const [roomName, metrics] of Object.entries(data)) {
+                const estado = evaluarEstado(metrics.temperature, metrics.humidity, metrics.co2);
+                if (metrics.emergency) { estado.texto = "EMERGENCIA MANUAL"; estado.clase = "status-critico"; }
+
+                const card = document.createElement('div');
+                card.className = `card ${estado.clase}`;
+                card.innerHTML = `
+                    <div class="card-header"><span>${roomName}</span><span class="badge">● ${estado.texto}</span></div>
+                    <div class="metrics">
+                        <div class="metric-item"><div class="metric-value">${metrics.temperature}°C</div><div class="metric-label">Temp</div></div>
+                        <div class="metric-item"><div class="metric-value">${metrics.co2}</div><div class="metric-label">CO2</div></div>
+                    </div>
+                    <button class="btn-emergency" onclick="toggleEmergencia('${roomName}', ${!metrics.emergency})">
+                        ${metrics.emergency ? '✓ NORMALIZAR SISTEMA' : '⚠ ACTIVAR ALARMA'}
+                    </button>
+                    <button class="btn-entrar" onclick="entrarSalon('${roomName}')">Vista Analítica ➔</button>
+                `;
+                container.appendChild(card);
             }
         }
 
-        // Funciones del Modal
-        function abrirModal() { document.getElementById('modalAdd').style.display = 'flex'; }
-        
-        function cerrarModal() { 
-            document.getElementById('modalAdd').style.display = 'none'; 
-            document.getElementById('roomNameInput').value = '';
+        function renderAlertas(data) {
+            const tbody = document.getElementById('alerts-body');
+            const alertDot = document.getElementById('alert-dot');
+            tbody.innerHTML = '';
+            let hayAlertas = false;
+
+            for (const [roomName, metrics] of Object.entries(data)) {
+                const estado = evaluarEstado(metrics.temperature, metrics.humidity, metrics.co2);
+                
+                if (estado.texto !== 'ÓPTIMO' || metrics.emergency) {
+                    hayAlertas = true;
+                    let causa = metrics.emergency ? "Emergencia Manual Activa" : `Desviación detectada (${estado.texto})`;
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><span class="badge" style="background: ${estado.color}33; color: ${estado.color};">● ${metrics.emergency ? 'EMERGENCIA' : estado.texto}</span></td>
+                        <td style="font-weight: bold;">${roomName}</td>
+                        <td style="color: var(--text-secondary);">${causa}</td>
+                        <td>${metrics.last_updated}</td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+            }
+
+            if (hayAlertas) {
+                alertDot.style.display = 'inline-block';
+            } else {
+                alertDot.style.display = 'none';
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-secondary);">No hay alertas activas en el campus.</td></tr>';
+            }
         }
 
-        // Crear salón enviando datos iniciales "falsos" al backend
+        function entrarSalon(roomName) {
+            currentRoomDetail = roomName;
+            cambiarVista('view-detail', 'menu-detalle');
+            document.getElementById('detail-title').innerText = roomName;
+            if(lastSensorData[roomName]) actualizarDatosDetalle(lastSensorData[roomName]);
+            renderizarGraficaSimulada();
+        }
+
+        function actualizarDatosDetalle(metrics) {
+            if(!metrics) return;
+            const estado = evaluarEstado(metrics.temperature, metrics.humidity, metrics.co2);
+            document.getElementById('detail-status').innerText = `● ESTADO: ${metrics.emergency ? 'EMERGENCIA' : estado.texto}`;
+            document.getElementById('detail-status').style.color = metrics.emergency ? '#e74c3c' : estado.color;
+            
+            document.getElementById('det-temp').innerText = `${metrics.temperature}°C`;
+            document.getElementById('det-co2').innerText = `${metrics.co2}`;
+            document.getElementById('det-hum').innerText = `${metrics.humidity}%`;
+            document.getElementById('switch-alarma').checked = metrics.emergency;
+        }
+
+        function renderizarGraficaSimulada() {
+            const ctx = document.getElementById('telemetryChart').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', 'Ahora'],
+                    datasets: [
+                        { label: 'Temp (°C)', data: [23, 23.5, 24, 25.2, 26, 25.5, 24.8, 24.5], borderColor: '#00e5ff', backgroundColor: 'rgba(0, 229, 255, 0.1)', borderWidth: 2, fill: true, tension: 0.4 },
+                        { label: 'Humedad (%)', data: [45, 48, 50, 55, 60, 58, 52, 50], borderColor: '#2ecc71', borderWidth: 2, borderDash: [5, 5], tension: 0.4 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { grid: { color: '#2d3748' } }, x: { grid: { color: '#2d3748' } } } }
+            });
+        }
+
+        async function toggleEmergencia(roomName, newState) {
+            await fetch(API_EMERGENCY, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: roomName, active: newState }) });
+            fetchSensores();
+        }
+        async function toggleEmergenciaDetalle(newState) { if(currentRoomDetail) await toggleEmergencia(currentRoomDetail, newState); }
+
+        function abrirModal() { document.getElementById('modalAdd').style.display = 'flex'; }
+        function cerrarModal() { document.getElementById('modalAdd').style.display = 'none'; document.getElementById('roomNameInput').value = ''; }
+        
         async function guardarSalon() {
             const nombre = document.getElementById('roomNameInput').value.trim();
-            if (!nombre) return alert('Por favor, ingresa el nombre del salón.');
-
-            const datosIniciales = {
-                room: nombre,
-                temperature: 24.5, // Valores por defecto simulados
-                humidity: 50.0,
-                co2: 450
-            };
-
-            try {
-                await fetch(API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(datosIniciales)
-                });
-                cerrarModal();
-                fetchSensores();
-            } catch (error) {
-                alert('Error al crear el salón en el servidor.');
-            }
+            if (!nombre) return;
+            await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: nombre, temperature: 25.0, humidity: 55.0, co2: 850 }) });
+            cerrarModal();
+            fetchSensores();
         }
 
-        // Función para enviar alerta de emergencia
-        async function toggleEmergencia(roomName, newState) {
-            try {
-                await fetch(API_EMERGENCY, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ room: roomName, active: newState })
-                });
-                fetchSensores();
-            } catch (error) {
-                alert("Error al enviar comando de emergencia");
-            }
-        }
-
-        // Simulación de "Entrar" a la vista detallada
-        function entrarSalon(roomName) {
-            alert(`Entrando a la configuración avanzada de: ${roomName}\n(Aquí integraremos las gráficas históricas más adelante).`);
-        }
-
-        // Iniciar ciclo de actualización
         fetchSensores();
         setInterval(fetchSensores, 3000);
     </script>
