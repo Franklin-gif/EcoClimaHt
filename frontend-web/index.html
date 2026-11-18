@@ -28,6 +28,12 @@
 
             <li id="menu-config" onclick="cambiarVista('view-settings', this.id)">⚙ Configuración de Umbrales</li>
         </ul>
+
+        <!-- Indicador de Broker MQTT (Integración Profesor) -->
+        <div style="margin-top: auto; text-align: center; padding: 15px 0; border-top: 1px solid rgba(255,255,255,0.05);">
+            <span id="mqtt-dot" style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #e74c3c; margin-right: 8px; box-shadow: 0 0 8px #e74c3c;"></span>
+            <span id="mqtt-text" style="color: var(--text-secondary); font-size: 0.85em; font-weight: bold;">Broker MQTT: Desconectado</span>
+        </div>
     </div>
 
     <!-- CONTENIDO PRINCIPAL -->
@@ -36,6 +42,8 @@
             <div class="topbar-info">
                 <span>● En línea - IoT Activo</span>
                 <span>| Campus Central</span>
+                <!-- Ruta de Tópico MQTT (Integración Profesor) -->
+                <span style="color: var(--text-secondary); margin-left: 15px; font-family: monospace;">| 📡 Tópico: utp/ds8/disp3/EcoClima/</span>
             </div>
             <div>
                 <button class="btn-emergency" style="background: var(--status-critico); color: white; border:none;">⚠ Paro de Emergencia Global</button>
@@ -183,7 +191,7 @@
         </div>
     </div>
 
-    <!-- NOTIFICACIÓN TOAST PERSONALIZADA (REEMPLAZO DE ALERT) -->
+    <!-- NOTIFICACIÓN TOAST PERSONALIZADA -->
     <div class="custom-toast-overlay" id="customToast">
         <div class="custom-toast-box">
             <h3>EcoClima Notificación</h3>
@@ -193,20 +201,26 @@
     </div>
 
     <script>
-        const IP_SERVIDOR = '192.168.100.193'; 
+        //const IP_SERVIDOR = '192.168.40.15';  //Ip Casa
+        const IP_SERVIDOR = '172.20.10.2';        // Ip Universidad
         const API_URL = `http://${IP_SERVIDOR}:8000/api/sensors`;
         const API_EMERGENCY = `http://${IP_SERVIDOR}:8000/api/emergency`;
+        const historialTiempoReal = {};
+        const MAX_PUNTOS_GRAFICA = 15;
         
         let currentRoomDetail = null;
         let chartInstance = null;
         let lastSensorData = {};
+        // Almacena el historial en vivo de cada salón: { "SALON 455": { labels: [], temp: [], hum: [], co2: [] } }
+
+        let graficaDetalle = null; // Instancia única de Chart.js
+        let salonEnDetalle = null; // Nombre del salón abierto en Vista de Detalle
 
         let umbrales = {
             critTemp: 30, critHum: 70, critCo2: 1000,
             advTemp: 26, advHum: 60, advCo2: 800
         };
 
-        // --- SISTEMA DE NOTIFICACIÓN PERSONALIZADA ---
         function mostrarAlerta(mensaje) {
             document.getElementById('toastMessage').innerText = mensaje;
             document.getElementById('customToast').style.display = 'flex';
@@ -240,7 +254,7 @@
             umbrales.advHum = parseFloat(document.getElementById('cfg-adv-hum').value);
             umbrales.advCo2 = parseFloat(document.getElementById('cfg-adv-co2').value);
             
-            mostrarAlerta("Umbrales actualizados correctamente. El sistema reevaluará los salones.");
+            mostrarAlerta("Umbrales actualizados correctamente.");
             fetchSensores();
         }
 
@@ -250,11 +264,19 @@
                 const data = await response.json();
                 lastSensorData = data;
 
+                Object.entries(data).forEach(([nombreSalon, valores]) => {
+            registrarDatoEnHistorial(nombreSalon, valores.temperature, valores.humidity, valores.co2);
+        });
+
                 renderDashboard(data);
                 renderAlertas(data);
                 
                 if (document.getElementById('view-detail').style.display === 'block' && currentRoomDetail) {
-                    actualizarDatosDetalle(data[currentRoomDetail]);
+                    if(data[currentRoomDetail]) {
+                        actualizarDatosDetalle(data[currentRoomDetail]);
+                    } else {
+                        volverDashboard();
+                    }
                 }
             } catch (error) { console.error("Error backend:", error); }
         }
@@ -263,6 +285,11 @@
             const container = document.getElementById('rooms-container');
             container.innerHTML = '';
             
+            if (Object.keys(data).length === 0) {
+                container.innerHTML = '<p style="color: var(--text-secondary); text-align: center; width: 100%; margin-top: 50px;">No hay salones registrados. Usa el botón + para agregar uno.</p>';
+                return;
+            }
+
             for (const [roomName, metrics] of Object.entries(data)) {
                 const estado = evaluarEstado(metrics.temperature, metrics.humidity, metrics.co2);
                 if (metrics.emergency) { estado.texto = "EMERGENCIA MANUAL"; estado.clase = "status-critico"; }
@@ -279,6 +306,7 @@
                         ${metrics.emergency ? '✓ NORMALIZAR SISTEMA' : '⚠ ACTIVAR ALARMA'}
                     </button>
                     <button class="btn-entrar" onclick="entrarSalon('${roomName}')">Vista Analítica ➔</button>
+                    <button class="btn-delete" onclick="eliminarSalon('${roomName}')">🗑 Eliminar Salón</button>
                 `;
                 container.appendChild(card);
             }
@@ -316,12 +344,30 @@
             }
         }
 
+        async function eliminarSalon(roomName) {
+            if (!confirm(`¿Estás seguro de eliminar el "${roomName}" del sistema?`)) return;
+            try {
+                const response = await fetch(`${API_URL}/${encodeURIComponent(roomName)}`, { method: 'DELETE' });
+                if (response.ok) {
+                    mostrarAlerta(`Salón ${roomName} eliminado exitosamente.`);
+                    fetchSensores();
+                } else {
+                    mostrarAlerta("No se pudo eliminar el salón.");
+                }
+            } catch (error) { mostrarAlerta("Error de conexión al intentar eliminar."); }
+        }
+
         function entrarSalon(roomName) {
             currentRoomDetail = roomName;
             cambiarVista('view-detail', 'menu-detalle');
             document.getElementById('detail-title').innerText = roomName;
             if(lastSensorData[roomName]) actualizarDatosDetalle(lastSensorData[roomName]);
             renderizarGraficaSimulada();
+        }
+
+        function volverDashboard() {
+            currentRoomDetail = null;
+            cambiarVista('view-dashboard', 'menu-dashboard');
         }
 
         function actualizarDatosDetalle(metrics) {
@@ -334,23 +380,90 @@
             document.getElementById('det-co2').innerText = `${metrics.co2}`;
             document.getElementById('det-hum').innerText = `${metrics.humidity}%`;
             document.getElementById('switch-alarma').checked = metrics.emergency;
+            renderizarGraficaSimulada();
+        
         }
 
-        function renderizarGraficaSimulada() {
-            const ctx = document.getElementById('telemetryChart').getContext('2d');
-            if (chartInstance) chartInstance.destroy();
-            chartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: ['10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', 'Ahora'],
-                    datasets: [
-                        { label: 'Temp (°C)', data: [23, 23.5, 24, 25.2, 26, 25.5, 24.8, 24.5], borderColor: '#00e5ff', backgroundColor: 'rgba(0, 229, 255, 0.1)', borderWidth: 2, fill: true, tension: 0.4 },
-                        { label: 'Humedad (%)', data: [45, 48, 50, 55, 60, 58, 52, 50], borderColor: '#2ecc71', borderWidth: 2, borderDash: [5, 5], tension: 0.4 }
-                    ]
+       function registrarDatoEnHistorial(nombreSalon, temp, hum, co2) {
+    if (!historialTiempoReal[nombreSalon]) {
+        historialTiempoReal[nombreSalon] = { labels: [], temp: [], hum: [], co2: [] };
+    }
+
+    const registro = historialTiempoReal[nombreSalon];
+    const ahora = new Date().toLocaleTimeString('es-PA', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+
+    registro.labels.push(ahora);
+    registro.temp.push(Number(temp));
+    registro.hum.push(Number(hum));
+    registro.co2.push(Number(co2));
+
+    if (registro.labels.length > 15) {
+        registro.labels.shift();
+        registro.temp.shift();
+        registro.hum.shift();
+        registro.co2.shift();
+    }
+}
+
+function renderizarGraficaSimulada() {
+    const datos = historialTiempoReal[currentRoomDetail] || { labels: [], temp: [], hum: [] };
+    const canvas = document.getElementById('telemetryChart');
+    if (!canvas) return;
+
+    // Si la gráfica ya existe, solo actualiza los puntos sin parpadear
+    if (chartInstance) {
+        chartInstance.data.labels = datos.labels;
+        chartInstance.data.datasets[0].data = datos.temp;
+        chartInstance.data.datasets[1].data = datos.hum;
+        chartInstance.update('none');
+        return;
+    }
+
+    // Si es la primera vez que se abre, crea la gráfica con tus mismos estilos
+    const ctx = canvas.getContext('2d');
+    chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: datos.labels,
+            datasets: [
+                {
+                    label: 'Temp (°C)',
+                    data: datos.temp,
+                    borderColor: '#00e5ff',
+                    backgroundColor: 'rgba(0, 229, 255, 0.12)',
+                    borderWidth: 2,
+                    tension: 0.35,
+                    fill: true
                 },
-                options: { responsive: true, maintainAspectRatio: false, scales: { y: { grid: { color: '#2d3748' } }, x: { grid: { color: '#2d3748' } } } }
-            });
+                {
+                    label: 'Humedad (%)',
+                    data: datos.hum,
+                    borderColor: '#2ecc71',
+                    borderDash: [5, 5],
+                    borderWidth: 2,
+                    tension: 0.35,
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 300 },
+            scales: {
+                y: { grid: { color: '#2d3748' }, ticks: { color: '#8a99ad' } },
+                x: { grid: { display: false }, ticks: { color: '#8a99ad' } }
+            },
+            plugins: {
+                legend: { labels: { color: '#e2e8f0' } }
+            }
         }
+    });
+}
 
         async function toggleEmergencia(roomName, newState) {
             await fetch(API_EMERGENCY, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: roomName, active: newState }) });
@@ -369,8 +482,36 @@
             fetchSensores();
         }
 
+        // --- FUNCIÓN PARA CONTROLAR EL ESTADO DEL BROKER MQTT ---
+        function actualizarEstadoMQTT(conectado) {
+            const dot = document.getElementById('mqtt-dot');
+            const text = document.getElementById('mqtt-text');
+            if (conectado) {
+                dot.style.background = '#2ecc71';
+                dot.style.boxShadow = '0 0 8px #2ecc71';
+                text.innerText = 'Broker MQTT: Conectado';
+                text.style.color = '#2ecc71';
+            } else {
+                dot.style.background = '#e74c3c';
+                dot.style.boxShadow = '0 0 8px #e74c3c';
+                text.innerText = 'Broker MQTT: Desconectado';
+                text.style.color = 'var(--text-secondary)';
+            }
+        }
+
         fetchSensores();
         setInterval(fetchSensores, 3000);
+    // Verificar el estado del broker MQTT cada 3 segundos
+        async function verificarBroker() {
+            try {
+                const res = await fetch(`http://${IP_SERVIDOR}:8000/api/mqtt/status`);
+                const data = await res.json();
+                actualizarEstadoMQTT(data.connected);
+            } catch (e) {
+                actualizarEstadoMQTT(false);
+            }
+        }
+        setInterval(verificarBroker, 3000);
     </script>
 </body>
 </html>

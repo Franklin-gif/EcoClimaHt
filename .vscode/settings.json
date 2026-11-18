@@ -1,0 +1,9 @@
+{
+  "liveServer.settings.ignoreFiles": [
+    "**/*.json",
+    "**/*.db",
+    "**/*.db-wal",
+    "**/*.db-shm",
+    "**/*.py"
+  ]
+}
