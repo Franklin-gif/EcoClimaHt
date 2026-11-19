@@ -1,16 +1,1 @@
-{
-    "SALON 455": {
-        "temperature": 21.4,
-        "humidity": 46.5,
-        "co2": 400,
-        "last_updated": "10:02:13",
-        "emergency": false
-    },
-    "Salon 210": {
-        "temperature": 22.9,
-        "humidity": 41.5,
-        "co2": 280,
-        "last_updated": "10:02:13",
-        "emergency": false
-    }
-}
+{}

@@ -118,7 +118,3 @@ LEFT JOIN lecturas_telemetria t ON t.id_lectura = (
     LIMIT 1
 )
 WHERE s.activo = 1;
-
--- Datos iniciales (Seed)
-INSERT OR IGNORE INTO salones (nombre, ubicacion) VALUES ('SALON 455', 'Edificio 3 - Piso 4');
-INSERT OR IGNORE INTO salones (nombre, ubicacion) VALUES ('Salon 210', 'Edificio 3 - Piso 2');

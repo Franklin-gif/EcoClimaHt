@@ -26,7 +26,12 @@
                 <span id="alert-dot" class="badge-dot"></span>
             </li>
 
-            <li id="menu-config" onclick="cambiarVista('view-settings', this.id)">⚙ Configuración de Umbrales</li>
+  <li id="menu-config" onclick="cambiarVista('view-settings', this.id)">⚙ Configuración de Umbrales</li>
+            <li id="menu-sensores" onclick="cambiarVista('view-available-sensors', this.id); cargarSensoresDisponibles();">
+                ◉ Sensores Disponibles
+                <span id="badge-sensores-disp" style="background: #00e5ff; color: #0b111e; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 12px; margin-left: auto;">0</span>
+            </li>
+        </ul>
         </ul>
 
         <!-- Indicador de Broker MQTT (Integración Profesor) -->
@@ -176,8 +181,25 @@
             </div>
             <button class="btn-save" onclick="guardarUmbrales()">Guardar Umbrales en el Sistema</button>
         </div>
+        
+        
+        <!-- ========================================== -->
+        <!-- VISTA 5: SENSORES DISPONIBLES              -->
+        <!-- ========================================== -->
+        <div id="view-available-sensors" class="vista-app" style="display: none; padding: 30px;">
+            <div style="margin-bottom: 24px;">
+                <h2 style="color: var(--text-primary); margin: 0 0 6px 0;">Sensores Físicos Disponibles</h2>
+                <p style="color: var(--text-secondary); margin: 0;">
+                    Selecciona un sensor detectado por el ESP32, asígnale su nombre o número de salón y aparecerá automáticamente en el Dashboard General.
+                </p>
+            </div>
 
+            <div id="grid-sensores-disponibles" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px;">
+                <!-- Tarjetas de sensores detectados -->
+            </div>
+        </div>
     </div>
+    
 
     <!-- Modal Agregar Salón -->
     <div class="modal-overlay" id="modalAdd">
@@ -201,8 +223,8 @@
     </div>
 
     <script>
-        //const IP_SERVIDOR = '192.168.40.15';  //Ip Casa
-        const IP_SERVIDOR = '172.20.10.2';        // Ip Universidad
+        const IP_SERVIDOR = '192.168.40.15';  //Ip Casa
+        //const IP_SERVIDOR = '172.20.10.2';        // Ip Universidad
         const API_URL = `http://${IP_SERVIDOR}:8000/api/sensors`;
         const API_EMERGENCY = `http://${IP_SERVIDOR}:8000/api/emergency`;
         const historialTiempoReal = {};
@@ -414,7 +436,7 @@ function renderizarGraficaSimulada() {
     const canvas = document.getElementById('telemetryChart');
     if (!canvas) return;
 
-    // Si la gráfica ya existe, solo actualiza los puntos sin parpadear
+    
     if (chartInstance) {
         chartInstance.data.labels = datos.labels;
         chartInstance.data.datasets[0].data = datos.temp;
@@ -423,7 +445,7 @@ function renderizarGraficaSimulada() {
         return;
     }
 
-    // Si es la primera vez que se abre, crea la gráfica con tus mismos estilos
+    
     const ctx = canvas.getContext('2d');
     chartInstance = new Chart(ctx, {
         type: 'line',
@@ -512,6 +534,128 @@ function renderizarGraficaSimulada() {
             }
         }
         setInterval(verificarBroker, 3000);
+
+        function mostrarSeccionSensores() {
+    document.querySelectorAll('.vista-app').forEach(vista => {
+        vista.style.display = 'none';
+    });
+
+    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+    const navBtn = document.getElementById('nav-sensors');
+    if (navBtn) navBtn.classList.add('active');
+
+    document.getElementById('view-available-sensors').style.display = 'block';
+    cargarSensoresDisponibles();
+}
+
+async function cargarSensoresDisponibles() {
+    try {
+        const baseApi = API_URL.replace('/api/sensors', '');
+        const res = await fetch(`${baseApi}/api/sensores-disponibles`);
+        const info = await res.json();
+
+        const badge = document.getElementById('badge-sensores-disp');
+        if (badge) badge.innerText = info.total_disponibles;
+
+        const grid = document.getElementById('grid-sensores-disponibles');
+        if (!grid) return;
+
+        if (!info.sensores || info.sensores.length === 0) {
+            grid.innerHTML = `
+                <div style="background: #161e2e; border: 1px dashed #2d3748; border-radius: 12px; padding: 30px; color: #8a99ad; grid-column: 1 / -1; text-align: center;">
+                    No se detectan sensores activos todavía. Inicia la simulación en Wokwi para escanear hardware.
+                </div>`;
+            return;
+        }
+
+        if (document.activeElement && document.activeElement.classList.contains('input-asignar-salon')) {
+            return;
+        }
+
+        grid.innerHTML = info.sensores.map(s => {
+            const asignado = Boolean(s.salon_asignado);
+            const badgeColor = asignado ? '#2ecc71' : '#00e5ff';
+            const badgeText = asignado ? `ASIGNADO A ${s.salon_asignado}` : 'DISPONIBLE';
+
+            return `
+            <div style="background: #161e2e; border: 1px solid #2d3748; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h3 style="color: #fff; margin: 0; font-size: 18px;">${s.sensor_id}</h3>
+                        <span style="color: #8a99ad; font-size: 12px;">Pin GPIO ${s.pin} • Última lectura: ${s.ultima_lectura}</span>
+                    </div>
+                    <span style="background: rgba(0,229,255,0.12); color: ${badgeColor}; border: 1px solid ${badgeColor}; font-size: 11px; font-weight: bold; padding: 4px 10px; border-radius: 20px;">
+                        ${badgeText}
+                    </span>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: #0f1522; padding: 12px; border-radius: 8px; text-align: center;">
+                    <div>
+                        <div style="color: #00e5ff; font-weight: bold; font-size: 16px;">${s.temperature}°C</div>
+                        <div style="color: #8a99ad; font-size: 11px;">TEMP</div>
+                    </div>
+                    <div>
+                        <div style="color: #2ecc71; font-weight: bold; font-size: 16px;">${s.humidity}%</div>
+                        <div style="color: #8a99ad; font-size: 11px;">HUMEDAD</div>
+                    </div>
+                    <div>
+                        <div style="color: #f6ad55; font-weight: bold; font-size: 16px;">${s.co2}</div>
+                        <div style="color: #8a99ad; font-size: 11px;">CO2 PPM</div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 8px; margin-top: 4px;">
+                    <input type="text" id="input-salon-${s.sensor_id}" class="input-asignar-salon"
+                           placeholder="Nombre o N° de Salón (ej. 455)"
+                           value="${s.salon_asignado || ''}"
+                           style="flex: 1; background: #0f1522; color: #fff; border: 1px solid #2d3748; padding: 10px 12px; border-radius: 8px; outline: none;">
+                    <button type="button" onclick="vincularSensorDesdeSeccion('${s.sensor_id}')"
+                            style="background: #00e5ff; color: #0b111e; font-weight: bold; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer;">
+                        ${asignado ? 'Actualizar' : 'Asignar'}
+                    </button>
+                </div>
+
+                ${asignado ? `
+                <button type="button" onclick="liberarSensor('${s.sensor_id}')"
+                        style="background: transparent; color: #fc8181; border: 1px solid #4a252a; padding: 8px; border-radius: 8px; cursor: pointer; font-size: 12px;">
+                    Desvincular del Dashboard
+                </button>` : ''}
+            </div>`;
+        }).join('');
+    } catch (err) {
+        console.error('Error cargando sensores disponibles:', err);
+    }
+}
+
+async function vincularSensorDesdeSeccion(sensorId) {
+    const input = document.getElementById(`input-salon-${sensorId}`);
+    const numeroSalon = input ? input.value.trim() : '';
+    if (!numeroSalon) {
+        alert('Escribe el número o nombre del salón antes de asignar.');
+        return;
+    }
+
+    const baseApi = API_URL.replace('/api/sensors', '');
+    const res = await fetch(`${baseApi}/api/asignar-sensor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sensor_id: sensorId, numero_salon: numeroSalon })
+    });
+    const data = await res.json();
+    if (data.ok) {
+        await cargarSensoresDisponibles();
+        await fetchSensores();
+    } else {
+        alert(data.error || 'No se pudo asignar el sensor.');
+    }
+}
+
+async function liberarSensor(sensorId) {
+    const baseApi = API_URL.replace('/api/sensors', '');
+    await fetch(`${baseApi}/api/desasignar-sensor/${sensorId}`, { method: 'POST' });
+    await cargarSensoresDisponibles();
+    await fetchSensores();
+}
     </script>
 </body>
 </html>
