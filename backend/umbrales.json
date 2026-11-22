@@ -1,0 +1,8 @@
+{
+    "temp_max": 30.0,
+    "temp_warn": 26.0,
+    "hum_max": 70.0,
+    "hum_warn": 60.0,
+    "co2_max": 1000.0,
+    "co2_warn": 800.0
+}

@@ -1,1 +1,16 @@
-{}
+{
+    "LED": {
+        "temperature": 30.0,
+        "humidity": 67.0,
+        "co2": 420,
+        "emergency": false,
+        "sensor_id": "DHT11-GPIO4"
+    },
+    "SIN LED": {
+        "temperature": 30.0,
+        "humidity": 62.0,
+        "co2": 420,
+        "emergency": false,
+        "sensor_id": "DHT11-GPIO16"
+    }
+}

@@ -334,6 +334,48 @@ def startup_event():
     except Exception as e:
         print(f"[MQTT] No se pudo conectar al iniciar: {e}")
 
+        from fastapi import Request
+
+TOPICO_UMBRALES = "utp/ds8/disp3/EcoClima/umbrales"
+UMBRALES_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "umbrales.json")
+umbrales_actuales = {
+    "temp_max": 40.0,
+    "temp_warn": 35.0,
+    "hum_max": 90.0,
+    "hum_warn": 80.0,
+    "co2_max": 1000.0,
+    "co2_warn": 800.0,
+}
+
+if os.path.exists(UMBRALES_JSON_PATH):
+    try:
+        with open(UMBRALES_JSON_PATH, "r", encoding="utf-8") as f:
+            umbrales_actuales.update(json.load(f))
+    except Exception:
+        pass
+
+@app.get("/api/umbrales")
+@app.get("/api/thresholds")
+def obtener_umbrales():
+    return umbrales_actuales
+
+@app.post("/api/umbrales")
+@app.post("/api/thresholds")
+async def actualizar_umbrales(request: Request):
+    body = await request.json()
+    for clave in umbrales_actuales:
+        if clave in body and body[clave] is not None:
+            umbrales_actuales[clave] = float(body[clave])
+
+    with open(UMBRALES_JSON_PATH, "w", encoding="utf-8") as f:
+        json.dump(umbrales_actuales, f, indent=4)
+
+    mensaje = json.dumps({"action": "thresholds", **umbrales_actuales})
+    mqtt_client.publish(TOPICO_UMBRALES, mensaje, retain=True)
+    mqtt_client.publish(TOPICO_CMD, mensaje)
+    print(f"[UMBRALES -> THONNY ESP32] Enviado: {umbrales_actuales}")
+    return {"ok": True, "umbrales": umbrales_actuales}
+
 
 @app.on_event("shutdown")
 def shutdown_event():

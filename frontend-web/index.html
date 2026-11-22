@@ -223,8 +223,8 @@
     </div>
 
     <script>
-        const IP_SERVIDOR = '192.168.40.15';  //Ip Casa
-        //const IP_SERVIDOR = '172.20.10.2';        // Ip Universidad
+        //const IP_SERVIDOR = '10.138.222.23';  //Ip Casa
+        const IP_SERVIDOR = '192.168.40.12';        // Ip Universidad
         const API_URL = `http://${IP_SERVIDOR}:8000/api/sensors`;
         const API_EMERGENCY = `http://${IP_SERVIDOR}:8000/api/emergency`;
         const historialTiempoReal = {};
@@ -656,6 +656,67 @@ async function liberarSensor(sensorId) {
     await cargarSensoresDisponibles();
     await fetchSensores();
 }
+(function () {
+    const API_UMBRALES = (window.location.port === "8000")
+        ? `${window.location.origin}/api/umbrales`
+        : "http://localhost:8000/api/umbrales";
+
+    function obtenerInputsUmbrales() {
+        const botonGuardar = Array.from(document.querySelectorAll("button"))
+            .find(b => b.textContent && b.textContent.toLowerCase().includes("guardar umbrales"));
+        if (!botonGuardar) return null;
+
+        let contenedor = botonGuardar.parentElement;
+        while (contenedor && contenedor.querySelectorAll('input[type="number"]').length < 6) {
+            contenedor = contenedor.parentElement;
+        }
+        if (!contenedor) return null;
+
+        const inputs = Array.from(contenedor.querySelectorAll('input[type="number"]'));
+        if (inputs.length < 6) return null;
+
+        // Orden visual en Configuración de Umbrales:
+        // [0] Temp Máxima, [1] Hum Máxima, [2] CO2 Máximo, [3] Temp Límite, [4] Hum Límite, [5] CO2 Límite
+        return { botonGuardar, inputs };
+    }
+
+    async function sincronizarUmbralesHaciaESP32() {
+        const ref = obtenerInputsUmbrales();
+        if (!ref) return;
+
+        const payload = {
+            temp_max: Number(ref.inputs[0].value),
+            hum_max: Number(ref.inputs[1].value),
+            co2_max: Number(ref.inputs[2].value),
+            temp_warn: Number(ref.inputs[3].value),
+            hum_warn: Number(ref.inputs[4].value),
+            co2_warn: Number(ref.inputs[5].value)
+        };
+
+        try {
+            const resp = await fetch(API_UMBRALES, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            if (resp.ok) {
+                console.log("[EcoClima] Umbrales enviados al ESP32:", payload);
+            }
+        } catch (err) {
+            console.error("[EcoClima] Error enviando umbrales al backend:", err);
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        const ref = obtenerInputsUmbrales();
+        if (ref && ref.botonGuardar) {
+            ref.botonGuardar.addEventListener("click", () => {
+                setTimeout(sincronizarUmbralesHaciaESP32, 100);
+            });
+        }
+    });
+})();
+
     </script>
 </body>
 </html>
