@@ -46,6 +46,80 @@ HtEcoClima/
 
 ---
 
+## Cómo Ejecutar el Proyecto (Paso a Paso)
+
+Sigue este orden para levantar el sistema completo sin conflictos de puertos ni de red:
+
+### Paso 1: Instalar Requisitos Previos
+Asegúrate de tener instalado **Python 3.10 o superior**, **Visual Studio Code** (con la extensión *Live Server*) y **Thonny IDE** (si usarás el ESP32 físico). Luego, instala las librerías del backend desde una terminal:
+
+```bash
+pip install fastapi uvicorn paho-mqtt
+```
+
+### Paso 2: Configurar el Destino MQTT Externo (Opcional)
+Si deseas reenviar la telemetría a un broker externo (por ejemplo, el servidor de evaluación), abre `backend/profesor_mqtt.json` y verifica los datos de conexión antes de arrancar el servidor:
+
+```json
+{
+  "habilitado": true,
+  "broker": "10.123.197.38",
+  "port": 1883,
+  "user": "g6",
+  "password": "123g6",
+  "topic": "utp/ds8/g6/EcoClima"
+}
+```
+> **Nota:** Si el broker externo usa una IP privada (`10.x.x.x` o `192.168.x.x`), tu computadora debe estar conectada a la misma red Wi-Fi o subred que ese servidor.
+
+### Paso 3: Arrancar el Backend (FastAPI + Puente MQTT)
+1. Abre la carpeta `HtEcoClima` en **VS Code**.
+2. Abre una terminal integrada (`Ctrl + ñ`), entra a la carpeta `backend` y ejecuta Uvicorn en el puerto **`8000`**:
+   ```bash
+   cd backend
+   uvicorn main:app --reload --port 8000
+   ```
+   *(Importante: No uses el puerto `1883` para Uvicorn; ese puerto es exclusivo del protocolo MQTT).*
+3. **Verificación en consola:** Debes ver mensajes similares a:
+   ```text
+   INFO:     Uvicorn running on [http://127.0.0.1:8000](http://127.0.0.1:8000) (Press CTRL+C to quit)
+   [MQTT] Conectado al broker (código 0)
+   [MQTT] Suscrito a: utp/ds8/g6/EcoClima
+   ```
+   *(Cada vez que edites `profesor_mqtt.json`, detén el servidor con `Ctrl + C` y vuelve a ejecutar `uvicorn main:app --reload --port 8000`).*
+
+### Paso 4: Iniciar el Microcontrolador (Físico o Simulado)
+Elige una de las dos modalidades según tu entorno de prueba:
+
+* **Opción A — Prototipo Físico (ESP32 + Thonny):**
+  1. Conecta el ESP32 por USB a la computadora y abre **Thonny**.
+  2. En la esquina inferior derecha de Thonny, selecciona el intérprete **MicroPython (ESP32)**.
+  3. Abre el archivo `main.py` del microcontrolador, actualiza `WIFI_SSID` y `WIFI_PASS` con el nombre y contraseña de tu red Wi-Fi, y asegúrate de tener:
+     ```python
+     MQTT_BROKER = "broker.hivemq.com"
+     TOPICO_TELEMETRIA = "utp/ds8/g6/EcoClima"
+     TOPICO_CMD = "utp/ds8/g6/EcoClima/cmd"
+     ```
+  4. Presiona **`F5`** (o el botón verde **Run**) para iniciar la lectura de sensores.
+
+* **Opción B — Simulación Virtual (Wokwi):**
+  1. Abre el proyecto en **Wokwi** con `WIFI_SSID = "Wokwi-GUEST"` y `WIFI_PASS = ""`.
+  2. Verifica que `TOPICO_TELEMETRIA = "utp/ds8/g6/EcoClima"` y `TOPICO_CMD = "utp/ds8/g6/EcoClima/cmd"`.
+  3. Haz clic en el botón verde **Start Simulation**.
+
+* **Verificación:** Tanto en Thonny como en Wokwi comenzará a imprimirse cada 5 segundos:
+  ```text
+  Reportando [DHT11-GPIO4]: {'temperature': 30.0, 'co2': 420, 'pin': 4, 'sensor_id': 'DHT11-GPIO4', 'humidity': 68.0}
+  ```
+
+### Paso 5: Abrir la Interfaz Web (Dashboard)
+1. En **VS Code**, haz clic derecho sobre `frontend-web/index.html` y selecciona **Open with Live Server** (se abrirá en `http://127.0.0.1:5500/frontend-web/index.html`).
+2. **Verificación visual:**
+   - En la esquina inferior izquierda debe aparecer el indicador verde **`Broker MQTT: Conectado`**.
+   - Las tarjetas de los salones mostrarán las lecturas actualizadas en vivo y la terminal de `uvicorn` confirmará el envío hacia el broker externo (`[PUENTE PROFESOR -> ...] Enviado a 'utp/ds8/g6/EcoClima'`).
+
+---
+
 ## Hardware y Pinout (ESP32 DevKit V1)
 
 | Componente | Pin ESP32 | Modo / Protocolo | Función en el Sistema |
@@ -80,51 +154,6 @@ HtEcoClima/
   "co2": 420
 }
 ```
-
----
-
-## Instalación y Ejecución
-
-### 1. Requisitos Previos
-- **Python 3.10+** instalado en el equipo.
-- **Thonny IDE** (con firmware MicroPython en el ESP32) o acceso a **Wokwi**.
-- Dependencias de Python para el backend:
-  ```bash
-  pip install fastapi uvicorn paho-mqtt
-  ```
-
-### 2. Iniciar el Backend (FastAPI)
-Desde la carpeta `backend/`, ejecuta el servidor en el puerto `8000`:
-```bash
-cd backend
-uvicorn main:app --reload --port 8000
-```
-El servidor inicializará automáticamente `ecoclima.db`, cargará los umbrales guardados y se conectará tanto al broker principal como al puente externo configurado.
-
-### 3. Ejecutar el Firmware del Microcontrolador
-- **En físico (Thonny):** Abre el script del ESP32, configura `WIFI_SSID` y `WIFI_PASS` con las credenciales de tu red local y ejecuta (`F5`).
-- **En simulación (Wokwi):** Mantén `WIFI_SSID = "Wokwi-GUEST"` y presiona **Start Simulation**.
-
-### 4. Abrir la Interfaz Web
-Abre `frontend-web/index.html` en tu navegador (mediante **Live Server** en VS Code o directamente desde `http://localhost:8000` si está servido por FastAPI).
-
----
-
-## Configuración del Puente MQTT Externo
-
-Para reenviar automáticamente la telemetría hacia otro servidor MQTT sin modificar el código fuente, edita el archivo `backend/profesor_mqtt.json`:
-
-```json
-{
-  "habilitado": true,
-  "broker": "10.123.197.38",
-  "port": 1883,
-  "user": "g6",
-  "password": "TU_PASSWORD",
-  "topic": "utp/ds8/g6/EcoClima"
-}
-```
-> **Nota de red:** Si el servidor de destino utiliza una dirección IP privada (`10.x.x.x` o `192.168.x.x`), el equipo que ejecuta el backend debe estar conectado a la misma red local o subred que el broker receptor. Tras modificar `profesor_mqtt.json`, reinicia `uvicorn` para aplicar los cambios.
 
 ---
 
