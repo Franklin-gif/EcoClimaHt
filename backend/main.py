@@ -16,8 +16,9 @@ DATA_JSON_PATH = os.path.join(BASE_DIR, "data.json")
 
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
-TOPICO_TELEMETRIA = "utp/ds8/disp3/EcoClima/telemetria"
-TOPICO_CMD = "utp/ds8/disp3/EcoClima/cmd"
+TOPICO_TELEMETRIA = "utp/ds8/g6/EcoClima"
+TOPICO_CMD = "utp/ds8/g6/EcoClima/cmd"
+TOPICO_UMBRALES = "utp/ds8/g6/EcoClima/umbrales"
 
 app = FastAPI(title="EcoClima IoT Enterprise API")
 
@@ -304,7 +305,10 @@ def on_disconnect(client, userdata, rc):
 
 def on_message(client, userdata, msg):
     try:
-        payload = json.loads(msg.payload.decode("utf-8"))
+        raw_payload = msg.payload.decode("utf-8")
+        if msg.topic == TOPICO_TELEMETRIA:
+            reenviar_telemetria_profesor(raw_payload)
+        payload = json.loads(raw_payload)
         procesar_telemetria_mqtt(payload)
     except Exception as e:
         print(f"[MQTT] Error procesando mensaje: {e}")
@@ -326,11 +330,12 @@ mqtt_client.on_message = on_message
 @app.on_event("startup")
 def startup_event():
     init_db()
-    cargar_estado_persistente()   # 1. Primero recupera lo guardado en BD/JSON
-    guardar_respaldo_json()       # 2. Sincroniza el respaldo sin borrarlo
+    cargar_estado_persistente()  # 1. Primero recupera lo guardado en BD/JSON
+    guardar_respaldo_json()      # 2. Sincroniza el respaldo sin borrarlo
     try:
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
         mqtt_client.loop_start()
+        iniciar_puente_profesor()
     except Exception as e:
         print(f"[MQTT] No se pudo conectar al iniciar: {e}")
 
@@ -376,12 +381,254 @@ async def actualizar_umbrales(request: Request):
     print(f"[UMBRALES -> THONNY ESP32] Enviado: {umbrales_actuales}")
     return {"ok": True, "umbrales": umbrales_actuales}
 
+    import os
+import json
+import sqlite3
+from datetime import datetime
+from fastapi import Request
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "ecoclima.db")
+UMBRALES_JSON_PATH = os.path.join(BASE_DIR, "umbrales.json")
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS salones (
+            id TEXT PRIMARY KEY,
+            nombre TEXT NOT NULL,
+            sensor_id TEXT,
+            temperature REAL DEFAULT 0,
+            humidity REAL DEFAULT 0,
+            co2 INTEGER DEFAULT 420,
+            alarma INTEGER DEFAULT 0,
+            servo_activo INTEGER DEFAULT 0,
+            led_activo INTEGER DEFAULT 0,
+            ultima_actualizacion TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS lecturas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            salon_id TEXT,
+            sensor_id TEXT,
+            temperature REAL,
+            humidity REAL,
+            co2 INTEGER,
+            timestamp TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS umbrales (
+            clave TEXT PRIMARY KEY,
+            valor REAL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+# ==========================================
+# PERSISTENCIA DE UMBRALES
+# ==========================================
+umbrales_actuales = {
+    "temp_max": 40.0,
+    "temp_warn": 35.0,
+    "hum_max": 90.0,
+    "hum_warn": 80.0,
+    "co2_max": 1000.0,
+    "co2_warn": 800.0,
+}
+
+def cargar_umbrales_db():
+    conn = get_db()
+    filas = conn.execute("SELECT clave, valor FROM umbrales").fetchall()
+    conn.close()
+    if filas:
+        for r in filas:
+            if r["clave"] in umbrales_actuales:
+                umbrales_actuales[r["clave"]] = float(r["valor"])
+    elif os.path.exists(UMBRALES_JSON_PATH):
+        with open(UMBRALES_JSON_PATH, "r", encoding="utf-8") as f:
+            umbrales_actuales.update(json.load(f))
+        guardar_umbrales_db()
+
+def guardar_umbrales_db():
+    conn = get_db()
+    for k, v in umbrales_actuales.items():
+        conn.execute(
+            "INSERT OR REPLACE INTO umbrales (clave, valor) VALUES (?, ?)",
+            (k, float(v))
+        )
+    conn.commit()
+    conn.close()
+    with open(UMBRALES_JSON_PATH, "w", encoding="utf-8") as f:
+        json.dump(umbrales_actuales, f, indent=4)
+
+@app.get("/api/umbrales")
+@app.get("/api/thresholds")
+def obtener_umbrales():
+    cargar_umbrales_db()
+    return umbrales_actuales
+
+@app.post("/api/umbrales")
+@app.post("/api/thresholds")
+async def actualizar_umbrales(request: Request):
+    body = await request.json()
+    for clave in umbrales_actuales:
+        if clave in body and body[clave] is not None:
+            umbrales_actuales[clave] = float(body[clave])
+
+    guardar_umbrales_db()
+    mensaje = json.dumps({"action": "thresholds", **umbrales_actuales})
+    mqtt_client.publish("utp/ds8/disp3/EcoClima/umbrales", mensaje, retain=True)
+    mqtt_client.publish(TOPICO_CMD, mensaje)
+    return {"ok": True, "umbrales": umbrales_actuales}
+
+# ==========================================
+# PERSISTENCIA DE ACTUADORES Y ALARMA POR SALÓN
+# ==========================================
+@app.post("/api/actuadores")
+@app.post("/api/cmd")
+async def controlar_actuadores(request: Request):
+    body = await request.json()
+    salon_id = body.get("salon_id") or body.get("id")
+    action = body.get("action")
+    state = bool(body.get("state", False))
+
+    conn = get_db()
+    if salon_id:
+        if action in ("emergency", "alarma"):
+            conn.execute(
+                "UPDATE salones SET alarma = ?, servo_activo = ?, led_activo = ? WHERE id = ?",
+                (1 if state else 0, 1 if state else 0, 1 if state else 0, salon_id)
+            )
+        elif action == "servo":
+            conn.execute(
+                "UPDATE salones SET servo_activo = ? WHERE id = ?",
+                (1 if state else 0, salon_id)
+            )
+        elif action == "led":
+            conn.execute(
+                "UPDATE salones SET led_activo = ? WHERE id = ?",
+                (1 if state else 0, salon_id)
+            )
+    else:
+        # Paro de emergencia global
+        conn.execute(
+            "UPDATE salones SET alarma = ?, servo_activo = ?, led_activo = ?",
+            (1 if state else 0, 1 if state else 0, 1 if state else 0)
+        )
+    conn.commit()
+    conn.close()
+
+    mqtt_client.publish(TOPICO_CMD, json.dumps({
+        "action": action or "emergency",
+        "salon_id": salon_id,
+        "state": state
+    }))
+    return {"ok": True, "action": action, "state": state}
+
 
 @app.on_event("shutdown")
 def shutdown_event():
     guardar_respaldo_json()
     mqtt_client.loop_stop()
     mqtt_client.disconnect()
+
+    import paho.mqtt.client as mqtt
+from fastapi import Request
+
+PROF_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "profesor_mqtt.json")
+prof_client = None
+prof_conectado = False
+prof_config = {
+    "habilitado": True,
+    "broker": "10.112.177.38",
+    "port": 1883,
+    "user": "g6",
+    "password": "123g6",
+    "topic": "utp/ds8/disp3/EcoClima/telemetria"
+}
+
+def cargar_config_profesor():
+    global prof_config
+    if os.path.exists(PROF_CONFIG_PATH):
+        with open(PROF_CONFIG_PATH, "r", encoding="utf-8") as f:
+            prof_config.update(json.load(f))
+    else:
+        with open(PROF_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(prof_config, f, indent=4)
+
+def iniciar_puente_profesor():
+    global prof_client, prof_conectado
+    cargar_config_profesor()
+    if prof_client:
+        try:
+            prof_client.loop_stop()
+            prof_client.disconnect()
+        except Exception:
+            pass
+    prof_conectado = False
+
+    if not prof_config.get("habilitado", True):
+        print("[PUENTE PROFESOR] Deshabilitado en profesor_mqtt.json")
+        return
+
+    prof_client = mqtt.Client(client_id="ecoclima_puente_g6")
+    if prof_config.get("user"):
+        prof_client.username_pw_set(prof_config["user"], prof_config.get("password", ""))
+
+    def on_connect_prof(client, userdata, flags, rc):
+        global prof_conectado
+        if rc == 0:
+            prof_conectado = True
+            print(f"[PUENTE PROFESOR] Conectado a {prof_config['broker']}:{prof_config['port']} como '{prof_config['user']}'")
+        else:
+            prof_conectado = False
+            print(f"[PUENTE PROFESOR] Error de conexión/autenticación (código rc={rc})")
+
+    def on_disconnect_prof(client, userdata, rc):
+        global prof_conectado
+        prof_conectado = False
+        print(f"[PUENTE PROFESOR] Desconectado (rc={rc})")
+
+    prof_client.on_connect = on_connect_prof
+    prof_client.on_disconnect = on_disconnect_prof
+
+    try:
+        prof_client.connect_async(prof_config["broker"], int(prof_config["port"]), 60)
+        prof_client.loop_start()
+    except Exception as e:
+        print(f"[PUENTE PROFESOR] No se pudo alcanzar {prof_config['broker']}: {e}")
+
+def reenviar_telemetria_profesor(payload_json_str: str):
+    if prof_client and prof_conectado:
+        topico_destino = prof_config.get("topic", "utp/ds8/disp3/EcoClima/telemetria")
+        info = prof_client.publish(topico_destino, payload_json_str, qos=1)
+        if info.rc == mqtt.MQTT_ERR_SUCCESS:
+            print(f"[PUENTE PROFESOR -> {prof_config['broker']}] Enviado a '{topico_destino}': {payload_json_str}")
+    else:
+        print("[PUENTE PROFESOR] Pendiente de conexión con el broker del profesor...")
+
+@app.post("/api/profesor/reconectar")
+async def reconectar_puente_profesor(request: Request):
+    try:
+        body = await request.json()
+        if body:
+            cargar_config_profesor()
+            prof_config.update(body)
+            with open(PROF_CONFIG_PATH, "w", encoding="utf-8") as f:
+                json.dump(prof_config, f, indent=4)
+    except Exception:
+        pass
+    iniciar_puente_profesor()
+    return {"ok": True, "config": {k: v for k, v in prof_config.items() if k != "password"}}
 
 
 # =========================

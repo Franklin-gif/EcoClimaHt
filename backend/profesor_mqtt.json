@@ -1,0 +1,8 @@
+{
+    "habilitado": true,
+   "broker": "10.123.197.38",
+    "port": 1883,
+    "user": "g6",
+    "password": "123g6",
+    "topic": "utp/ds8/g6/EcoClima"
+}
